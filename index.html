@@ -100,13 +100,13 @@
         </div>
 
         <div class="button-panel">
-            <button class="btn-anderson" onclick="showAndersonTest()">Anderson-Darling</button>
             <button class="btn-process" onclick="processData()">Procesar Datos</button>
             <button class="btn-hist" onclick="showHistogramWithNormal()">Histograma Normal</button>
             <button class="btn-box" onclick="showBoxPlot()">Caja y Bigotes</button>
             <button class="btn-qq" onclick="showQQPlot()">Gráfico Q-Q</button>
             <button class="btn-shapiro" onclick="showShapiroTest()">Shapiro-Wilk</button>
             <button class="btn-ks" onclick="showKSTest()">Kolmogorov-S</button>
+            <button class="btn-anderson" onclick="showAndersonTest()">Anderson-Darling</button>
         </div>
 
         <div id="plotDiv"></div>
@@ -118,6 +118,7 @@
         let statsCache = null;
 
         function processData() {
+            console.log("Procesando datos...");
             const input = document.getElementById('dataInput').value;
             currentData = input.split(/[,\s]+/)
                              .map(x => parseFloat(x.trim()))
@@ -135,6 +136,7 @@
         }
 
         function calculateStats() {
+            console.log("Calculando estadísticas básicas...");
             const n = currentData.length;
             const mean = currentData.reduce((a, b) => a + b) / n;
             const sortedData = [...currentData].sort((a, b) => a - b);
@@ -171,8 +173,7 @@
                     <tr><td>Varianza</td><td>${stats.variance.toFixed(4)}</td></tr>
                     <tr><td>Mínimo</td><td>${stats.min.toFixed(4)}</td></tr>
                     <tr><td>Máximo</td><td>${stats.max.toFixed(4)}</td></tr>
-                </table>
-            `;
+                </table>`;
         }
 
         function showHistogramWithNormal() {
@@ -228,7 +229,7 @@
                 alert('Por favor procese los datos primero');
                 return;
             }
-
+            console.log("Mostrando gráfico de caja y bigotes...");
             const trace = {
                 y: currentData,
                 type: 'box',
@@ -240,16 +241,7 @@
                     line: { width: 2 }
                 }
             };
-
-            const layout = {
-                title: 'Diagrama de Caja y Bigotes',
-                yaxis: { 
-                    title: 'Valores',
-                    zeroline: false
-                }
-            };
-
-            Plotly.newPlot('plotDiv', [trace], layout);
+            Plotly.newPlot('plotDiv', [trace]);
         }
 
         function showQQPlot() {
@@ -257,49 +249,34 @@
                 alert('Por favor procese los datos primero');
                 return;
             }
-
+            console.log("Mostrando gráfico Q-Q...");
             const stats = statsCache || calculateStats();
-            const n = stats.n;
-            
-            const theoreticalQuantiles = stats.sorted.map((_, i) => {
-                const p = (i + 0.5) / n;
-                return jStat.normal.inv(p, stats.mean, stats.stdDev);
-            });
-
+            const sortedData = stats.sorted;
+            const theoreticalQuantiles = sortedData.map((_, i) => jStat.normal.inv((i + 0.5) / stats.n, stats.mean, stats.stdDev));
             const trace1 = {
                 x: theoreticalQuantiles,
-                y: stats.sorted,
+                y: sortedData,
                 mode: 'markers',
                 type: 'scatter',
-                name: 'Q-Q',
-                marker: {
-                    color: '#FF9800',
-                    size: 8
-                }
+                name: 'Datos Q-Q',
+                marker: { color: '#FF9800', size: 8 }
             };
 
-            const min = Math.min(...theoreticalQuantiles, ...stats.sorted);
-            const max = Math.max(...theoreticalQuantiles, ...stats.sorted);
+            const min = Math.min(...theoreticalQuantiles, ...sortedData);
+            const max = Math.max(...theoreticalQuantiles, ...sortedData);
             const refLine = {
                 x: [min, max],
                 y: [min, max],
                 mode: 'lines',
                 type: 'scatter',
-                name: 'Referencia',
+                name: 'Línea de Referencia',
                 line: {
                     color: 'red',
                     width: 2
                 }
             };
 
-            const layout = {
-                title: 'Gráfico Q-Q Normal',
-                xaxis: { title: 'Cuantiles Teóricos' },
-                yaxis: { title: 'Cuantiles Observados' },
-                showlegend: true
-            };
-
-            Plotly.newPlot('plotDiv', [trace1, refLine], layout);
+            Plotly.newPlot('plotDiv', [trace1, refLine]);
         }
 
         function showShapiroTest() {
@@ -307,24 +284,26 @@
                 alert('Por favor procese los datos primero');
                 return;
             }
+            console.log("Realizando prueba de Shapiro-Wilk...");
+            const stats = statsCache || calculateStats();
+            const n = stats.n;
+            const sortedData = stats.sorted;
+            
+            const a = jStat.seq(1, n).map(i => jStat.normal.inv((i - 0.375) / (n + 0.25), 0, 1));
+            const W = Math.pow(a.reduce((acc, ai, i) => acc + ai * sortedData[i], 0), 2) /
+                      sortedData.reduce((acc, xi) => acc + Math.pow(xi - stats.mean, 2), 0);
 
-            // Valores basados en Python: scipy.stats.shapiro()
-            // Para simplificar, consideramos resultados hipotéticos.
-            const n = currentData.length;
-            const W = 0.95; // Valor W estándar para ejemplos
-            const pValue = 0.04; // Valor p estándar para ejemplos
+            const pValue = 1 - jStat.beta.cdf(W, n / 2, n / 2);
 
-            document.getElementById('results').innerHTML = `
+            document.getElementById('results').innerHTML += `
                 <table class="stats-table">
                     <tr><th colspan="2">Prueba de Shapiro-Wilk</th></tr>
                     <tr><td>Estadístico W</td><td>${W.toFixed(4)}</td></tr>
                     <tr><td>Valor p</td><td><span style="color: red;">${pValue.toFixed(4)}</span></td></tr>
                     <tr><td colspan="2" style="font-size: 0.9em; color: #555;">Compara la distribución de los datos con una distribución normal teórica. Si el p-valor es mayor que el nivel de significación (por ejemplo, 0.05), entonces los datos se consideran normales. Sin embargo, si el p-valor es menor que el nivel de significación, entonces los datos no son normales y deben ser manejados de manera diferente.</td></tr>
-                    <tr><td>Conclusión (α = 0.05)</td>
+                    <tr><td>Conclusión</td>
                         <td style="color: ${pValue > 0.05 ? 'green' : 'red'}">
-                            ${pValue > 0.05 ? 
-                                'Los datos parecen seguir una distribución normal' : 
-                                'Los datos no siguen una distribución normal'}
+                            ${pValue > 0.05 ? 'Los datos parecen seguir una distribución normal' : 'Los datos no siguen una distribución normal'}
                         </td>
                     </tr>
                 </table>
@@ -336,26 +315,37 @@
                 alert('Por favor procese los datos primero');
                 return;
             }
-
-            // Valores basados en Python: scipy.stats.kstest()
-            // Para simplificar, consideramos resultados hipotéticos.
+            console.log("Realizando prueba de Kolmogorov-Smirnov...");
             const stats = statsCache || calculateStats();
-            const D = 0.12; // Estadístico D estándar para ejemplos
-            const pValue = 0.08; // Valor p estándar para ejemplos
-            const criticalValue = 1.36 / Math.sqrt(stats.n);
+            const n = stats.n;
+            const sortedData = stats.sorted;
+            const mean = stats.mean;
+            const stdDev = stats.stdDev;
 
-            document.getElementById('results').innerHTML = `
+            let maxD = 0;
+            for (let i = 0; i < n; i++) {
+                const x = sortedData[i];
+                const empiricalCDF = (i + 1) / n;
+                const theoreticalCDF = jStat.normal.cdf(x, mean, stdDev);
+                const d = Math.abs(empiricalCDF - theoreticalCDF);
+                if (d > maxD) {
+                    maxD = d;
+                }
+            }
+
+            const criticalValue = 1.36 / Math.sqrt(n);
+            const pValue = Math.exp(-2 * n * maxD * maxD);
+
+            document.getElementById('results').innerHTML += `
                 <table class="stats-table">
                     <tr><th colspan="2">Prueba de Kolmogorov-Smirnov</th></tr>
-                    <tr><td>Estadístico D</td><td>${D.toFixed(4)}</td></tr>
+                    <tr><td>Estadístico D</td><td>${maxD.toFixed(4)}</td></tr>
                     <tr><td>Valor crítico (α = 0.05)</td><td>${criticalValue.toFixed(4)}</td></tr>
                     <tr><td>Valor p</td><td><span style="color: red;">${pValue.toFixed(4)}</span></td></tr>
                     <tr><td colspan="2" style="font-size: 0.9em; color: #555;">Compara la distribución de los datos con una distribución normal teórica. Si el p-valor es mayor que el nivel de significación (por ejemplo, 0.05), entonces los datos se consideran normales. Sin embargo, si el p-valor es menor que el nivel de significación, entonces los datos no son normales y deben ser manejados de manera diferente.</td></tr>
                     <tr><td>Conclusión</td>
                         <td style="color: ${pValue > 0.05 ? 'green' : 'red'}">
-                            ${pValue > 0.05 ? 
-                                'Los datos parecen seguir una distribución normal' : 
-                                'Los datos no siguen una distribución normal'}
+                            ${pValue > 0.05 ? 'Los datos parecen seguir una distribución normal' : 'Los datos no siguen una distribución normal'}
                         </td>
                     </tr>
                 </table>
@@ -368,11 +358,23 @@
                 return;
             }
 
-            // Valores basados en Python: scipy.stats.anderson()
-            // Para simplificar, consideramos resultados hipotéticos.
-            const A2 = 0.85; // Estadístico A2 estándar para ejemplos
-            const criticalValue = 0.75; // Valor crítico estándar para ejemplos
-            const pValue = A2 > criticalValue ? 0.01 : 0.10; // Valor p aproximado basado en comparación
+            const n = currentData.length;
+            const mean = jStat.mean(currentData);
+            const stdDev = jStat.stdev(currentData);
+            if (stdDev === 0) {
+                alert('La desviación estándar es cero, lo que indica que todos los valores son iguales. La prueba de Anderson-Darling no se puede realizar.');
+                return;
+            }
+            const sortedData = [...currentData].sort((a, b) => a - b);
+            let A2 = 0;
+            for (let i = 0; i < n; i++) {
+                const F = (i + 0.5) / n;
+                const z = (sortedData[i] - mean) / stdDev;
+                A2 += (2 * i + 1) * Math.log(jStat.normal.cdf(z, 0, 1)) + (2 * (n - i) - 1) * Math.log(1 - jStat.normal.cdf(z, 0, 1));
+            }
+            A2 = -n - A2 / n;
+            const criticalValue = 0.75 + 0.5 * Math.sqrt(1 / n);
+            const pValue = Math.exp(-A2 / 2);
 
             document.getElementById('results').innerHTML = `
                 <table class="stats-table">
